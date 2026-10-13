@@ -1,0 +1,1 @@
+Te voy a ayudar a crear una simulación en 3D del rover Perseverance, el robot de la NASA que explora Marte. Vamos a construir paso a paso la escena marciana, el rover y los controles para moverlo y explorarlo desde el navegador.
