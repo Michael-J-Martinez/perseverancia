@@ -1,5 +1,6 @@
 // npm run check: abre la página en el Chrome de Windows (headless) vía Playwright,
-// guarda una captura y lista los errores de consola.
+// guarda capturas, comprueba el control de misión (4 datos reales y la tecla T),
+// las ruedas (giro y dirección) y los choques con rocas, y lista los errores de consola.
 import { spawn, execSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import net from 'node:net';
@@ -12,6 +13,11 @@ const PORT = 9339; // puerto de depuración de Chrome (en Windows)
 const RELAY_PORT = 9340; // puerto local en WSL
 const OUT = 'check-output';
 const SHOT = `${OUT}/screenshot.png`;
+const SHOT_DRIVE = `${OUT}/screenshot-drive.png`;
+const SHOT_TRACKS = `${OUT}/screenshot-tracks.png`;
+const SHOT_HIDDEN = `${OUT}/screenshot-hidden.png`;
+const SHOT_CRASH = `${OUT}/screenshot-crash.png`;
+const SHOT_WHEELS = `${OUT}/screenshot-wheels.png`;
 const WAIT_MS = Number(process.env.CHECK_WAIT || 6000);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -91,6 +97,7 @@ const chrome = spawn(
 const relay = await startRelay();
 const cdp = `http://127.0.0.1:${RELAY_PORT}`;
 const problems = [];
+const logs = [];
 let browser;
 try {
   if (!(await waitFor(`${cdp}/json/version`, 25000))) {
@@ -103,6 +110,7 @@ try {
   await page.setViewportSize({ width: 1600, height: 900 });
 
   page.on('console', (msg) => {
+    if (msg.type() === 'log' || msg.type() === 'info') logs.push(msg.text());
     // "GL Driver Message" es ruido de rendimiento del renderizado por software, no de la página.
     if ((msg.type() === 'error' || msg.type() === 'warning') && !msg.text().includes('GL Driver Message')) {
       problems.push(`[console.${msg.type()}] ${msg.text()}`);
@@ -115,9 +123,150 @@ try {
   page.on('requestfailed', (req) => problems.push(`[requestfailed] ${req.url()} ${req.failure()?.errorText ?? ''}`));
 
   await page.goto(URL_PAGE, { waitUntil: 'load' });
+  // La página pone window.__ready cuando ha cargado todo (p. ej. el modelo del rover).
+  await page.waitForFunction(() => window.__ready === true, null, { timeout: 30000 }).catch(() => {
+    problems.push('[check] la página no llegó a window.__ready en 30 s');
+  });
   await sleep(WAIT_MS);
+
+  // Control de misión: los 4 datos reales tienen que haber llegado con un número.
+  await page
+    .waitForFunction(
+      () => {
+        const d = window.__mission?.data;
+        return d && Object.keys(d).length === 4 && Object.values(d).every((e) => e.status !== 'loading');
+      },
+      null,
+      { timeout: 30000 },
+    )
+    .catch(() => problems.push('[check] el control de misión no terminó de cargar en 30 s'));
+  const mission = await page.evaluate(() => window.__mission?.data ?? {});
+  console.log('\nControl de misión:');
+  for (const [key, e] of Object.entries(mission)) {
+    const ok = e.status === 'ok' && Number.isFinite(e.value) && e.points > 1;
+    const value = ok ? `${e.value.toFixed(3)} ${e.unit}` : e.error ?? e.status;
+    console.log(`  ${ok ? '✓' : '✗'} ${e.name.padEnd(27)} ${value.padEnd(14)} ${String(e.points).padStart(5)} pts · ${e.provider}`);
+    if (!ok) problems.push(`[check] ${key} no cargó: ${value}`);
+  }
+  if (Object.keys(mission).length !== 4) problems.push(`[check] se esperaban 4 datos y hay ${Object.keys(mission).length}`);
+  // El tiempo de luz es en vivo: tiene que cambiar solo.
+  const lt0 = mission['percy.lighttime']?.value;
+  await sleep(3000);
+  const lt1 = await page.evaluate(() => window.__mission?.data['percy.lighttime']?.value);
+  console.log(`  tiempo de luz en vivo: ${(lt0 * 60).toFixed(4)} s → ${(lt1 * 60).toFixed(4)} s ${lt0 !== lt1 ? '(cambia ✓)' : '(no cambió ✗)'}`);
+  if (lt0 === lt1) problems.push('[check] el tiempo de luz no se actualiza en vivo');
+
   await page.screenshot({ path: SHOT });
   console.log(`Captura: ${SHOT}`);
+
+  // T oculta el panel y lo vuelve a mostrar.
+  const panelVisible = () => page.evaluate(() => {
+    const el = document.querySelector('.mc');
+    return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+  });
+  await page.keyboard.press('KeyT');
+  await sleep(300);
+  const hiddenOk = !(await panelVisible());
+  await page.screenshot({ path: SHOT_HIDDEN });
+  await page.keyboard.press('KeyT');
+  await sleep(300);
+  const shownOk = await panelVisible();
+  console.log(`Tecla T: oculta ${hiddenOk ? '✓' : '✗'} · vuelve a mostrar ${shownOk ? '✓' : '✗'}  (captura oculto: ${SHOT_HIDDEN})`);
+  if (!hiddenOk) problems.push('[check] la tecla T no oculta el control de misión');
+  if (!shownOk) problems.push('[check] la tecla T no vuelve a mostrar el control de misión');
+
+  // Parado con A: gira sobre sí mismo; las 4 ruedas de las esquinas se orientan y las centrales no.
+  await page.mouse.click(800, 450);
+  const drive = (seconds) => page.evaluate((n) => { for (let i = 0; i < n; i++) window.__game?.step(1 / 30); }, Math.round(seconds * 30));
+  const heading0 = await page.evaluate(() => window.__game.driver.state.heading);
+  await page.keyboard.down('KeyA');
+  await drive(1);
+  const steering = await page.evaluate((h0) => {
+    const g = window.__game;
+    // Cámara de lado y cerca para ver las ruedas.
+    const p = g.driver.rover.root.position;
+    const h = g.driver.state.heading;
+    g.camera.position.set(p.x + Math.cos(h) * 5.5 + Math.sin(h) * 2.5, p.y + 1.6, p.z - Math.sin(h) * 5.5 + Math.cos(h) * 2.5);
+    g.controls.target.set(p.x, p.y + 0.5, p.z);
+    return {
+      turned: ((g.driver.state.heading - h0) * 180) / Math.PI,
+      wheels: g.driver.rover.wheels.map((w) => ({ name: w.name, deg: (w.angle * 180) / Math.PI, steerable: w.steerable })),
+    };
+  }, heading0);
+  await page.keyboard.up('KeyA');
+  await page.evaluate(() => window.__game.controls.update());
+  await sleep(1200);
+  await page.screenshot({ path: SHOT_WHEELS });
+  console.log(`Giro en el sitio con A: ${steering.turned.toFixed(0)}° · ${steering.wheels.map((w) => `${w.name} ${w.deg.toFixed(0)}°`).join(' · ')}  (captura: ${SHOT_WHEELS})`);
+  if (Math.abs(steering.turned) < 5) problems.push('[check] con A el rover no gira sobre sí mismo');
+  if (!steering.wheels.every((w) => (w.steerable ? Math.abs(w.deg) > 20 : Math.abs(w.deg) < 0.5))) {
+    problems.push('[check] la dirección de las ruedas no responde a A');
+  }
+  await drive(1.5); // las ruedas vuelven a enderezarse
+
+  // Conduce un poco (W + giro) para comprobar movimiento, huellas y cámara de seguimiento.
+  // El headless renderiza por software (pocos FPS), así que con las teclas pulsadas
+  // se avanza la simulación a 30 Hz desde aquí (drive) para no depender del framerate.
+  await page.keyboard.down('KeyW');
+  await drive(4);
+  await page.keyboard.down('KeyA');
+  await drive(2.5);
+  await page.keyboard.up('KeyA');
+  await drive(1.5);
+  await page.keyboard.up('KeyW');
+  await drive(2);
+  await sleep(1500);
+  const state = await page.evaluate(() => {
+    const g = window.__game;
+    if (!g) return null;
+    const s = g.driver.state;
+    return { x: s.x.toFixed(1), z: s.z.toFixed(1), rumbo: ((s.heading * 180) / Math.PI).toFixed(0), huellas: g.tracks.count };
+  });
+  if (state) console.log(`Tras conducir: x=${state.x} z=${state.z} rumbo=${state.rumbo}° huellas=${state.huellas}`);
+  const rolled = await page.evaluate(() => window.__game.driver.rover.wheels.map((w) => w.roll));
+  console.log(`Ruedas: ${rolled.length} sueltas · vueltas = ${rolled.map((r) => (r / (2 * Math.PI)).toFixed(1)).join(', ')}`);
+  if (rolled.length !== 6) problems.push(`[check] se esperaban 6 ruedas sueltas y hay ${rolled.length}`);
+  if (!rolled.every((r) => r > 2 * Math.PI)) problems.push('[check] alguna rueda no giró al avanzar');
+
+  await page.screenshot({ path: SHOT_DRIVE });
+  console.log(`Captura conduciendo: ${SHOT_DRIVE}`);
+
+  // Gira la cámara ~180° con el ratón para ver las huellas detrás del rover.
+  await page.mouse.move(800, 450);
+  await page.mouse.down();
+  await page.mouse.move(1250, 620, { steps: 10 });
+  await page.mouse.up();
+  await drive(3);
+  await sleep(1500);
+  await page.screenshot({ path: SHOT_TRACKS });
+  console.log(`Captura de huellas: ${SHOT_TRACKS}`);
+
+  // Choque: se coloca el rover a 8 m de la roca alta más cercana, mirándola, y se acelera.
+  const rock = await page.evaluate(() => {
+    const g = window.__game;
+    const s = g.driver.state;
+    const rock = g.rocks.rocks
+      .filter((r) => r.solid && r.height > 0.5)
+      .sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z))[0];
+    const h = Math.atan2(rock.x - s.x, rock.z - s.z);
+    Object.assign(s, { x: rock.x - Math.sin(h) * 8, z: rock.z - Math.cos(h) * 8, heading: h, speed: 0 });
+    return { ...rock, crashesBefore: s.crashes };
+  });
+  await page.keyboard.down('KeyW');
+  await drive(5);
+  await page.screenshot({ path: SHOT_CRASH });
+  await page.keyboard.up('KeyW');
+  const crash = await page.evaluate(({ x, z }) => {
+    const s = window.__game.driver.state;
+    return { crashes: s.crashes, gap: Math.hypot(s.x - x, s.z - z), last: s.lastCrash };
+  }, rock);
+  const crashed = crash.crashes > rock.crashesBefore;
+  console.log(
+    `Choque: roca de ${rock.height.toFixed(2)} m (radio ${rock.r.toFixed(2)} m) → ${crashed ? `chocó a ${crash.last.speed.toFixed(1)} m/s ✓` : 'no chocó ✗'}` +
+      ` · quedó a ${crash.gap.toFixed(2)} m de su centro ${crash.gap > rock.r ? '(no la atravesó ✓)' : '(la atravesó ✗)'}  (captura: ${SHOT_CRASH})`,
+  );
+  if (!crashed) problems.push('[check] el rover no chocó contra la roca');
+  if (crash.gap <= rock.r) problems.push('[check] el rover atravesó la roca');
   await page.close();
 } catch (err) {
   problems.push(`[check] ${err.message}`);
@@ -130,6 +279,10 @@ try {
   relay.close();
 }
 
+if (logs.length) {
+  console.log('\nConsola de la página:');
+  for (const l of logs) console.log('  ' + l);
+}
 const errors = problems.filter((p) => !p.startsWith('[console.warning]'));
 if (problems.length) {
   console.log(`\n${problems.length} mensaje(s):`);

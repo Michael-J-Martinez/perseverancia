@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:," />
+<title>Mapa de Open MCT</title>
+<style>
+  :root {
+    --bg: #faf6f1;
+    --surface: #ffffff;
+    --ink: #2b2118;
+    --muted: #6d5f52;
+    --line: #e4d8cb;
+    --accent: #b5532b;
+    --accent-soft: #f6e3d8;
+    --boot: #2f6f8f;
+    --boot-soft: #e1eef4;
+    --data: #b5532b;
+    --data-soft: #f6e3d8;
+    --ok: #2e7d4f;
+    --ok-soft: #e2f2e8;
+    --code-bg: #f3ece4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1a1511;
+      --surface: #241d18;
+      --ink: #f1e8df;
+      --muted: #b4a597;
+      --line: #3a3029;
+      --accent: #e98a5c;
+      --accent-soft: #3a261c;
+      --boot: #7cc0e0;
+      --boot-soft: #1d2d36;
+      --data: #e98a5c;
+      --data-soft: #3a261c;
+      --ok: #7fd3a1;
+      --ok-soft: #1c3226;
+      --code-bg: #2e2620;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1a1511; --surface: #241d18; --ink: #f1e8df; --muted: #b4a597; --line: #3a3029;
+    --accent: #e98a5c; --accent-soft: #3a261c; --boot: #7cc0e0; --boot-soft: #1d2d36;
+    --data: #e98a5c; --data-soft: #3a261c; --ok: #7fd3a1; --ok-soft: #1c3226; --code-bg: #2e2620;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1060px; margin: 0 auto; padding: 40px 16px 80px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 12px; }
+  h2 { font-size: 1.45rem; margin: 56px 0 8px; }
+  h3 { font-size: 1.05rem; margin: 0 0 4px; }
+  p { margin: 0 0 12px; }
+  .lead {
+    font-size: 1.25rem;
+    background: var(--accent-soft);
+    border-left: 5px solid var(--accent);
+    padding: 16px 20px;
+    border-radius: 8px;
+  }
+  .sub { color: var(--muted); }
+  code, .ref {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.82em;
+  }
+  .ref {
+    display: inline-block;
+    background: var(--code-bg);
+    color: var(--ink);
+    padding: 1px 7px;
+    border-radius: 5px;
+    margin-top: 6px;
+    word-break: break-all;
+  }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+
+  /* Diagrama */
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin: 8px 0 20px; font-size: 0.95rem; }
+  .legend span::before {
+    content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+    margin-right: 6px; vertical-align: -1px;
+  }
+  .legend .l-boot::before { background: var(--boot); }
+  .legend .l-data::before { background: var(--data); }
+  .diagram { display: grid; grid-template-columns: 1fr 1.25fr; gap: 28px; align-items: start; }
+  .lane h3 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 12px; }
+  .flow { display: flex; flex-direction: column; align-items: stretch; }
+  .box {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--boot);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .box.data { border-left-color: var(--data); }
+  .box .n {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--boot-soft); color: var(--boot);
+    font-size: 0.8rem; font-weight: 700; margin-right: 6px;
+  }
+  .box.data .n { background: var(--data-soft); color: var(--data); }
+  .box strong { font-size: 1rem; }
+  .box p { margin: 4px 0 0; font-size: 0.95rem; color: var(--muted); }
+  .arrow {
+    align-self: center; width: 2px; height: 26px; background: var(--line); position: relative; margin: 2px 0 8px;
+  }
+  .arrow::after {
+    content: ""; position: absolute; left: -6px; bottom: -8px;
+    border: 7px solid transparent; border-top: 9px solid var(--muted);
+  }
+  .arrow.label { height: 40px; }
+  .arrow span {
+    position: absolute; left: 12px; top: 6px; white-space: nowrap;
+    font-size: 0.8rem; color: var(--muted); font-style: italic;
+  }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .bridge {
+    margin-top: 18px; padding: 12px 14px; border: 2px dashed var(--line); border-radius: 10px;
+    font-size: 0.95rem; color: var(--muted);
+  }
+
+  /* Piezas clave */
+  .pieces { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 16px; }
+  .piece { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .piece .num { font-size: 1.6rem; font-weight: 800; color: var(--accent); line-height: 1; }
+  .piece h3 { margin-top: 6px; }
+  .piece .like { font-size: 0.95rem; color: var(--muted); margin-top: 6px; }
+
+  /* Pasos */
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 16px 0 0; }
+  ol.steps > li {
+    counter-increment: s; position: relative; padding: 14px 16px 14px 60px; margin-bottom: 10px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  }
+  ol.steps > li::before {
+    content: counter(s); position: absolute; left: 16px; top: 14px;
+    width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-weight: 700;
+  }
+  ol.steps p { margin: 4px 0 0; color: var(--muted); font-size: 0.97rem; }
+  .note {
+    background: var(--boot-soft); border-radius: 10px; padding: 14px 16px; margin-top: 16px; font-size: 0.97rem;
+  }
+  details { margin-top: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  summary { cursor: pointer; font-weight: 600; }
+  pre {
+    background: var(--code-bg); padding: 14px; border-radius: 8px; overflow-x: auto;
+    font: 0.82rem/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+
+  /* Comprobaciones y commit */
+  .checks { display: grid; gap: 12px; margin-top: 14px; }
+  .check { background: var(--ok-soft); border-radius: 10px; padding: 14px 16px; }
+  .check .tag { color: var(--ok); font-weight: 700; }
+  .check pre { background: var(--surface); margin: 8px 0 0; }
+  .commit { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .commit dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+  .commit dt { color: var(--muted); }
+  .commit dd { margin: 0; word-break: break-all; }
+
+  @media (max-width: 760px) {
+    body { font-size: 16px; }
+    h1 { font-size: 1.6rem; }
+    .diagram { grid-template-columns: 1fr; }
+    .split { grid-template-columns: 1fr; }
+    .arrow span { white-space: normal; width: 60vw; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mapa de Open MCT para conectar a Percy</h1>
+  <p class="lead">
+    <strong>Open MCT es como el tablero de un coche, pero para una misión espacial:</strong> una página web
+    que la NASA usa para ver en pantalla, en tiempo real, los datos que envía una nave, un rover o un satélite.
+  </p>
+  <p class="sub">
+    Este mapa explica cómo está construido y cómo viajaría un dato de Perseverance («Percy») hasta convertirse en una
+    gráfica. Cada caja lleva su <span class="ref">archivo:línea</span> por si alguien quiere ver el código exacto.
+    Todas las rutas son relativas a la raíz del repositorio <code>nasa/openmct</code>.
+  </p>
+
+  <!-- ============ DIAGRAMA ============ -->
+  <h2>Cómo funciona, en un diagrama</h2>
+  <p>
+    Open MCT tiene un <strong>núcleo</strong> pequeño (el «chasis») y muchos <strong>plugins</strong> (las «piezas que se enchufan»).
+    Casi todo lo que ves en pantalla —gráficas, tablas, relojes— es un plugin. Para conectar a Percy
+    escribiremos <em>nuestro propio plugin</em>.
+  </p>
+  <div class="legend">
+    <span class="l-boot">Al arrancar: se monta el tablero</span>
+    <span class="l-data">El viaje de un dato hasta la gráfica</span>
+  </div>
+
+  <div class="diagram">
+    <!-- Carril 1: arranque -->
+    <section class="lane">
+      <h3>1 · Al arrancar</h3>
+      <div class="flow">
+        <div class="box">
+          <span class="n">1</span><strong>La página web</strong>
+          <p>El archivo de inicio enchufa los plugins uno a uno (por ejemplo, un generador de datos de prueba).</p>
+          <span class="ref">index.html:104</span>
+        </div>
+        <div class="arrow label"><span>openmct.install(…)</span></div>
+        <div class="box">
+          <span class="n">2</span><strong>El núcleo recibe el plugin</strong>
+          <p>«Instalar» es muy simple: el núcleo le pasa al plugin acceso a todo el sistema.</p>
+          <span class="ref">src/MCT.js:435-437</span>
+        </div>
+        <div class="arrow label"><span>el plugin registra sus piezas</span></div>
+        <div class="split">
+          <div class="box">
+            <span class="n">3</span><strong>Carpeta en el árbol</strong>
+            <p>Aparece una carpeta (por ejemplo «Percy») en el menú lateral.</p>
+            <span class="ref">src/api/objects/ObjectAPI.js:498</span>
+          </div>
+          <div class="box">
+            <span class="n">4</span><strong>Tipo de objeto</strong>
+            <p>Le dice al sistema «existe una cosa llamada canal de telemetría de Percy».</p>
+            <span class="ref">src/api/types/TypeRegistry.js:59</span>
+          </div>
+        </div>
+        <div class="arrow"></div>
+        <div class="box">
+          <span class="n">5</span><strong>Registro de proveedores de datos</strong>
+          <p>El núcleo apunta en una lista quién sabe dar datos históricos, quién datos en vivo y quién describe los campos.</p>
+          <span class="ref">src/api/telemetry/TelemetryAPI.js:167-187</span>
+        </div>
+        <div class="arrow label"><span>openmct.start()</span></div>
+        <div class="box">
+          <span class="n">6</span><strong>Se enciende la pantalla</strong>
+          <p>Cuando la página termina de cargar, arranca la aplicación.</p>
+          <span class="ref">index.html:239-241</span>
+        </div>
+      </div>
+      <div class="bridge">
+        El paso <strong>5</strong> es el puente con el carril de la derecha: la gráfica nunca habla directamente con Percy;
+        le pide los datos al núcleo, y el núcleo busca en esa lista quién puede dárselos.
+      </div>
+    </section>
+
+    <!-- Carril 2: viaje del dato -->
+    <section class="lane">
+      <h3>2 · El viaje de un dato</h3>
+      <div class="flow">
+        <div class="box data">
+          <span class="n">A</span><strong>La gráfica decide si puede mostrar el objeto</strong>
+          <p>Solo se ofrece si el objeto tiene un campo de <em>tiempo</em> y al menos un <em>valor numérico</em>.</p>
+          <span class="ref">src/plugins/plot/PlotViewProvider.js:38-40</span>
+          <span class="ref">src/api/telemetry/TelemetryAPI.js:303-319</span>
+        </div>
+        <div class="arrow"></div>
+        <div class="box data">
+          <span class="n">B</span><strong>Lee la «ficha» de los datos</strong>
+          <p>Los metadatos dicen qué campo va en el eje X (el tiempo, marcado <code>domain</code>) y cuál en el eje Y (el valor, marcado <code>range</code>).</p>
+          <span class="ref">src/api/telemetry/TelemetryAPI.js:790-803</span>
+          <span class="ref">example/generator/GeneratorMetadataProvider.js:10-15</span>
+          <span class="ref">example/generator/GeneratorMetadataProvider.js:44-52</span>
+        </div>
+        <div class="arrow"></div>
+        <div class="box data">
+          <span class="n">C</span><strong>Cada línea de la gráfica pide sus datos</strong>
+          <p>Hace dos cosas a la vez: se <em>suscribe</em> a los datos en vivo y <em>pide</em> el historial del rango de tiempo visible.</p>
+          <span class="ref">src/plugins/plot/configuration/PlotSeries.js:213-224</span>
+          <span class="ref">src/plugins/plot/configuration/PlotSeries.js:228</span>
+        </div>
+        <div class="arrow label"><span>telemetry.request(…) / subscribe(…)</span></div>
+        <div class="box data">
+          <span class="n">D</span><strong>El núcleo busca al proveedor adecuado</strong>
+          <p>Completa el rango de tiempo, encuentra en la lista quién sirve ese objeto y le pasa la petición.</p>
+          <span class="ref">src/api/telemetry/TelemetryAPI.js:484-495</span>
+          <span class="ref">src/api/telemetry/TelemetryAPI.js:536</span>
+        </div>
+        <div class="arrow"></div>
+        <div class="box data">
+          <span class="n">E</span><strong>El proveedor entrega los datos</strong>
+          <p>Aquí iría Percy. En el ejemplo de la NASA es un generador de ondas: devuelve el historial y avisa cada vez que hay un dato nuevo.</p>
+          <span class="ref">example/generator/GeneratorProvider.js:91-99</span>
+          <span class="ref">example/generator/GeneratorProvider.js:101-105</span>
+        </div>
+        <div class="arrow label"><span>vuelve un dato: { utc: 1739462400000, value: 12.3 }</span></div>
+        <div class="box data">
+          <span class="n">F</span><strong>La línea guarda el punto</strong>
+          <p>Descarta valores inválidos o repetidos, lo coloca en orden de tiempo y avisa «¡punto nuevo!».</p>
+          <span class="ref">src/plugins/plot/configuration/PlotSeries.js:436-472</span>
+        </div>
+        <div class="arrow"></div>
+        <div class="box data">
+          <span class="n">G</span><strong>Se dibuja en pantalla</strong>
+          <p>El gráfico escucha ese aviso, prepara los puntos y la tarjeta gráfica los pinta como una línea.</p>
+          <span class="ref">src/plugins/plot/chart/MCTChartSeriesElement.js:36</span>
+          <span class="ref">src/plugins/plot/chart/MctChart.vue:768-789</span>
+          <span class="ref">src/plugins/plot/draw/DrawWebGL.js:198-204</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ PIEZAS CLAVE ============ -->
+  <h2>Las 5 piezas clave para conectar a Percy</h2>
+  <p class="sub">Todo esto vive dentro de un solo plugin nuestro. Ninguna pieza toca el código de la NASA.</p>
+  <div class="pieces">
+    <div class="piece">
+      <div class="num">1</div>
+      <h3>El plugin «Percy»</h3>
+      <p>Una función que el núcleo llama una vez al arrancar. Dentro registramos las otras cuatro piezas.</p>
+      <p class="like">Es como el enchufe: sin él, nada de lo demás se conecta.</p>
+      <span class="ref">src/MCT.js:435-437</span>
+    </div>
+    <div class="piece">
+      <div class="num">2</div>
+      <h3>La carpeta y sus objetos</h3>
+      <p>Una carpeta «Percy» en el árbol, y dentro un objeto por cada sensor: velocidad, rumbo, inclinación, batería…</p>
+      <p class="like">Es el índice: lo que el operador ve en el menú lateral.</p>
+      <span class="ref">src/api/objects/ObjectAPI.js:498</span>
+      <span class="ref">src/api/objects/ObjectAPI.js:168</span>
+    </div>
+    <div class="piece">
+      <div class="num">3</div>
+      <h3>El tipo «canal de Percy»</h3>
+      <p>Le enseña al sistema qué es un canal de telemetría de Percy, con su nombre e icono.</p>
+      <p class="like">Es la etiqueta de la caja: «esto contiene datos de Percy».</p>
+      <span class="ref">src/api/types/TypeRegistry.js:59</span>
+    </div>
+    <div class="piece">
+      <div class="num">4</div>
+      <h3>La ficha de cada dato (metadatos)</h3>
+      <p>Dice que cada dato trae una hora (<code>utc</code>, eje X) y un valor (eje Y), con sus unidades.</p>
+      <p class="like">Sin esta ficha, la gráfica no sabe qué número poner en cada eje y ni siquiera aparece.</p>
+      <span class="ref">example/generator/GeneratorMetadataProvider.js:10-15</span>
+      <span class="ref">src/api/telemetry/TelemetryAPI.js:303-319</span>
+    </div>
+    <div class="piece">
+      <div class="num">5</div>
+      <h3>El proveedor de telemetría</h3>
+      <p>El traductor entre Percy y Open MCT: responde «dame lo de ayer de 10:00 a 11:00» (historial) y «avísame de cada dato nuevo» (en vivo).</p>
+      <p class="like">Es la única pieza que sabe de dónde vienen los datos de verdad.</p>
+      <span class="ref">src/api/telemetry/TelemetryAPI.js:167-187</span>
+      <span class="ref">example/generator/GeneratorProvider.js:91-105</span>
+    </div>
+  </div>
+
+  <!-- ============ CÓMO CONECTAMOS PERCY ============ -->
+  <h2>Cómo conectamos Percy</h2>
+  <p>
+    Nuestra fuente de datos más directa es <strong>nuestra propia simulación 3D de Percy</strong> (la que ya maneja con
+    W/A/S/D): ya sabe en todo momento su posición, rumbo y velocidad. Los pasos:
+  </p>
+  <ol class="steps">
+    <li>
+      <strong>Elegir qué datos mostrar.</strong>
+      <p>Empezar con 4 canales sencillos: velocidad (m/s), rumbo (°), inclinación (°) y distancia recorrida (m).
+        Cada dato es siempre una pareja: <em>hora</em> + <em>valor</em>, por ejemplo <code>{ utc: 1739462400000, value: 3.2 }</code>
+        (la hora va en milisegundos).</p>
+    </li>
+    <li>
+      <strong>Hacer que la simulación «emita» su telemetría.</strong>
+      <p>La simulación envía unas 10 veces por segundo sus datos por una conexión en vivo (WebSocket) a un pequeño
+        servidor, que además guarda el historial para poder responder «qué pasó entre las 10:00 y las 11:00».</p>
+    </li>
+    <li>
+      <strong>Crear el plugin «Percy»</strong> <span class="sub">(pieza 1)</span>.
+      <p>Un archivo nuevo, <code>percy-plugin.js</code>, con una función de instalación igual a la de los plugins de la NASA.</p>
+    </li>
+    <li>
+      <strong>Añadir la carpeta «Percy» y sus canales</strong> <span class="sub">(piezas 2 y 3)</span>.
+      <p>Una carpeta raíz en el árbol y, dentro, un objeto por canal, todos del tipo «canal de Percy».</p>
+    </li>
+    <li>
+      <strong>Escribir la ficha de cada canal</strong> <span class="sub">(pieza 4)</span>.
+      <p>Marcar <code>utc</code> como el tiempo (<code>domain</code>) y <code>value</code> como el valor (<code>range</code>), con su unidad.
+        La clave del tiempo debe llamarse igual que el sistema de tiempo activo (<code>utc</code>).</p>
+    </li>
+    <li>
+      <strong>Escribir el proveedor</strong> <span class="sub">(pieza 5)</span>.
+      <p>Dos funciones: <em>historial</em> (pide al servidor los datos entre dos horas y los devuelve en una lista) y
+        <em>en vivo</em> (escucha el WebSocket y entrega cada dato nuevo).</p>
+    </li>
+    <li>
+      <strong>Enchufar el plugin en la página.</strong>
+      <p>Una línea en el archivo de inicio, junto a los demás plugins y <em>antes</em> de arrancar, igual que se hace con el generador de ejemplo
+        (<span class="ref">index.html:104</span>).</p>
+    </li>
+    <li>
+      <strong>Abrir «Percy → Velocidad».</strong>
+      <p>Si la ficha está bien, Open MCT ofrece la gráfica él solo. Después se pueden combinar varios canales en un
+        «Display Layout» para montar un tablero de misión completo.</p>
+    </li>
+  </ol>
+  <div class="note">
+    <strong>Sobre datos reales de la NASA:</strong> el Percy real no publica su telemetría en directo. Lo público
+    llega con retraso (imágenes en bruto, el tiempo meteorológico de su estación MEDA…). El mismo plugin serviría:
+    solo cambiaría el proveedor (paso 6) para leer esas fuentes en lugar de nuestra simulación.
+  </div>
+  <details>
+    <summary>Para quien programe: esqueleto del plugin (orientativo, sin probar)</summary>
+<pre>export default function PercyPlugin({ url = 'ws://localhost:8090' } = {}) {
+  return function install(openmct) {
+    // Pieza 2: carpeta raíz + objetos
+    openmct.objects.addRoot({ namespace: 'percy', key: 'root' });
+    openmct.objects.addProvider('percy', { get: (id) =&gt; obtenerObjeto(id) });
+
+    // Pieza 3: tipo
+    openmct.types.addType('percy.telemetry', {
+      name: 'Canal de Percy', cssClass: 'icon-telemetry', creatable: false
+    });
+
+    // Pieza 5: proveedor (historial + en vivo)
+    openmct.telemetry.addProvider({
+      supportsRequest: (o) =&gt; o.type === 'percy.telemetry',
+      request: (o, { start, end }) =&gt; pedirHistorial(o.identifier.key, start, end),
+      supportsSubscribe: (o) =&gt; o.type === 'percy.telemetry',
+      subscribe: (o, callback) =&gt; escucharEnVivo(url, o.identifier.key, callback)
+    });
+  };
+}
+// Pieza 4: cada objeto lleva su ficha en domainObject.telemetry.values:
+// [{ key: 'utc', format: 'utc', hints: { domain: 1 } },
+//  { key: 'value', name: 'Velocidad', unit: 'm/s', hints: { range: 1 } }]</pre>
+  </details>
+
+  <!-- ============ COMPROBACIONES ============ -->
+  <h2>Comprobaciones</h2>
+  <p class="sub">Tres referencias del diagrama abiertas de nuevo para confirmar que la línea hace lo que dice la caja.</p>
+  <div class="checks">
+    <div class="check">
+      <span class="tag">✓ Caja D (viaje del dato)</span> — «El núcleo busca al proveedor y le pasa la petición»
+      <span class="ref">src/api/telemetry/TelemetryAPI.js:484-495</span>
+<pre>this.standardizeRequestOptions(arguments[1]);          // 484: completa el rango de tiempo
+const provider = this.findRequestProvider.apply(...);  // 486: busca quién sirve el objeto
+...
+const telemetry = await provider.request(...arguments); // 495: le pasa la petición</pre>
+    </div>
+    <div class="check">
+      <span class="tag">✓ Caja F (viaje del dato)</span> — «La línea guarda el punto y avisa»
+      <span class="ref">src/plugins/plot/configuration/PlotSeries.js:436-472</span>
+<pre>if (this.isValueInvalid(currentYVal) &amp;&amp; ...) return;   // 443: descarta valores inválidos
+if (this.getXVal(data[insertIndex]) === currentXVal) return; // 453: descarta repetidos
+data.splice(insertIndex, 0, newData);                  // 469: lo coloca en orden de tiempo
+this.emit('add', newData, insertIndex, this);          // 471: avisa «¡punto nuevo!»</pre>
+    </div>
+    <div class="check">
+      <span class="tag">✓ Caja 2 (arranque)</span> — «Instalar: el núcleo le pasa al plugin acceso a todo»
+      <span class="ref">src/MCT.js:435-437</span>
+<pre>install(plugin) {
+  plugin(this);   // "this" es el objeto openmct completo
+}</pre>
+    </div>
+  </div>
+
+  <!-- ============ COMMIT ============ -->
+  <h2>Commit analizado</h2>
+  <div class="commit">
+    <dl>
+      <dt>Repositorio</dt><dd>github.com/nasa/openmct (rama principal)</dd>
+      <dt>Commit</dt><dd><code>e09bfaf47856b2b7ae2ea74334800b26fd27a41e</code></dd>
+      <dt>Fecha</dt><dd>6 de octubre de 2026</dd>
+      <dt>Mensaje</dt><dd>[Documentation] Add AGENTS.md contributor guidance (#8379)</dd>
+    </dl>
+    <p class="sub" style="margin-top:12px">Todas las líneas citadas corresponden a este commit; en versiones futuras pueden moverse.</p>
+  </div>
+</main>
+</body>
+</html>

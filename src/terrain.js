@@ -23,8 +23,8 @@ export function heightAt(x, z) {
   const wx = x + n2(x * 0.008, z * 0.008) * 30;
   const wz = z + n2(x * 0.008 + 50, z * 0.008) * 30;
   // 1 - |n| suavizado: cresta redondeada en vez de pico.
-  const rn = n2(wx * 0.0035, wz * 0.011);
-  const ridge = 1 - Math.sqrt(rn * rn + 0.045);
+  const rn = n2(wx * 0.0035, wz * 0.0075);
+  const ridge = 1 - Math.sqrt(rn * rn + 0.08);
   h += Math.pow(Math.max(ridge, 0), 2.2) * 11;
 
   const sn = n2(wx * 0.008, wz * 0.018);
@@ -74,13 +74,35 @@ function rippleNormalMap(size = 256) {
   return tex;
 }
 
+const SIZE = 1800, SEG = 480, CELL = SIZE / SEG;
+let grid = null; // alturas de los vértices de la malla, fila a fila en z
+
+// Altura exacta de la superficie renderizada (interpola el mismo triángulo que dibuja la GPU),
+// para que el rover y las huellas apoyen sobre la malla y no sobre la función continua.
+export function groundHeight(x, z) {
+  if (!grid) return heightAt(x, z);
+  const gx = THREE.MathUtils.clamp((x + SIZE / 2) / CELL, 0, SEG - 1e-4);
+  const gz = THREE.MathUtils.clamp((z + SIZE / 2) / CELL, 0, SEG - 1e-4);
+  const ix = Math.floor(gx), iz = Math.floor(gz);
+  const fx = gx - ix, fz = gz - iz;
+  const at = (i, j) => grid[j * (SEG + 1) + i];
+  const ha = at(ix, iz), hb = at(ix, iz + 1), hc = at(ix + 1, iz + 1), hd = at(ix + 1, iz);
+  // PlaneGeometry divide cada celda por la diagonal b-d.
+  if (fx + fz <= 1) return ha + fx * (hd - ha) + fz * (hb - ha);
+  return hc + (1 - fx) * (hb - hc) + (1 - fz) * (hd - hc);
+}
+
 export function createTerrain() {
-  const SIZE = 1800, SEG = 480;
   const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
   geo.rotateX(-Math.PI / 2);
 
   const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)));
+  grid = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const h = heightAt(pos.getX(i), pos.getZ(i));
+    pos.setY(i, h);
+    grid[i] = h;
+  }
   geo.computeVertexNormals();
 
   // Color por vértice: valles oscuros, crestas claras, motas de óxido.

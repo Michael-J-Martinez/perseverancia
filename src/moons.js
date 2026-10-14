@@ -62,12 +62,12 @@ export function createMoons() {
 
   // Tamaños exagerados para que se lean en pantalla (como haría el cine).
   const phobos = new THREE.Mesh(lumpyGeometry(new THREE.Vector3(1.25, 0.95, 1.0), 3), moonMaterial());
-  phobos.position.copy(skyDir(24, 21)).multiplyScalar(DIST);
+  phobos.position.copy(skyDir(15, 18)).multiplyScalar(DIST);
   phobos.scale.setScalar(17);
   phobos.rotation.set(0.4, 1.2, 0.2);
 
   const deimos = new THREE.Mesh(lumpyGeometry(new THREE.Vector3(1.15, 0.9, 1.0), 11), moonMaterial());
-  deimos.position.copy(skyDir(-33, 25)).multiplyScalar(DIST);
+  deimos.position.copy(skyDir(-34, 19)).multiplyScalar(DIST);
   deimos.scale.setScalar(10);
 
   phobos.name = 'Phobos';
