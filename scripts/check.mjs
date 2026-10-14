@@ -18,6 +18,9 @@ const SHOT_TRACKS = `${OUT}/screenshot-tracks.png`;
 const SHOT_HIDDEN = `${OUT}/screenshot-hidden.png`;
 const SHOT_CRASH = `${OUT}/screenshot-crash.png`;
 const SHOT_WHEELS = `${OUT}/screenshot-wheels.png`;
+const SHOT_PHOTO = `${OUT}/screenshot-photo.png`;
+const SHOT_ZOOM = `${OUT}/screenshot-photo-zoom.png`;
+const SHOT_LOGO = `${OUT}/screenshot-logo.png`;
 const WAIT_MS = Number(process.env.CHECK_WAIT || 6000);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -175,6 +178,88 @@ try {
   if (!hiddenOk) problems.push('[check] la tecla T no oculta el control de misión');
   if (!shownOk) problems.push('[check] la tecla T no vuelve a mostrar el control de misión');
 
+  // Cámaras de Percy: pasar el ratón muestra el nombre; el clic abre una foto real de Marte.
+  console.log('\nCámaras:');
+  const markers = await page.evaluate(() => window.__cameras?.markers ?? []);
+  if (markers.length !== 4) problems.push(`[check] se esperaban 4 cámaras con punto y hay ${markers.length}`);
+  for (const [n, m] of markers.entries()) {
+    if (!m.visible) {
+      problems.push(`[check] el punto de ${m.name} no está en pantalla`);
+      continue;
+    }
+    await page.mouse.move(m.x + 30, m.y + 30);
+    await page.mouse.move(m.x, m.y, { steps: 4 });
+    await sleep(400);
+    const label = await page.evaluate((key) => {
+      const el = document.querySelector(`.cam-dot[data-key="${key}"] .cam-label`);
+      return el && getComputedStyle(el).display !== 'none' ? el.querySelector('b').textContent : null;
+    }, m.key);
+    await page.mouse.click(m.x, m.y);
+    const opened = await page
+      .waitForFunction(() => window.__cameras.viewer.loaded, null, { timeout: 30000 })
+      .then(() => true)
+      .catch(() => false);
+    const v = await page.evaluate(() => {
+      const img = document.querySelector('.photo img');
+      return { ...window.__cameras.viewer, natural: img?.naturalWidth ?? 0, cam: document.querySelector('[data-photo-cam]')?.textContent, sol: document.querySelector('[data-photo-sol]')?.textContent, ago: document.querySelector('[data-photo-ago]')?.textContent, desc: document.querySelector('[data-photo-desc]')?.textContent };
+    });
+    const real = opened && v.natural > 0 && /^https:\/\/mars\.nasa\.gov\/mars2020-raw-images\//.test(v.src);
+    console.log(`  ${real ? '✓' : '✗'} ${m.name.padEnd(17)} hover: ${label ?? '✗ sin nombre'} · ${real ? `${v.cam} · ${v.sol} · ${v.ago} · ${v.natural}px · «${v.desc}»` : 'no abrió una foto real'}`);
+    if (!label) problems.push(`[check] pasar el ratón por ${m.name} no muestra su nombre`);
+    if (!real) problems.push(`[check] ${m.name} no abrió una foto real (${v.src ?? 'sin src'})`);
+    if (real && n === 0) {
+      await sleep(3600); // que termine de revelarse
+      await page.screenshot({ path: SHOT_PHOTO });
+      console.log(`    captura con la foto abierta: ${SHOT_PHOTO}`);
+      // → otra foto de la misma cámara.
+      await page.keyboard.press('ArrowRight');
+      const next = await page
+        .waitForFunction(() => window.__cameras.viewer.loaded && window.__cameras.viewer.index === 1, null, { timeout: 30000 })
+        .then(() => true)
+        .catch(() => false);
+      console.log(`    flecha →: ${next ? 'foto 2 cargada ✓' : 'no cambió ✗'}`);
+      if (!next) problems.push('[check] la flecha → no muestra otra foto de la cámara');
+      // Clic en la foto: ampliar.
+      await sleep(3400);
+      await page.click('.photo img');
+      await sleep(2500);
+      const zoom = await page.evaluate(() => window.__cameras.viewer.zoom);
+      await page.screenshot({ path: SHOT_ZOOM });
+      console.log(`    clic: ${zoom ? 'ampliada ✓' : 'no se amplió ✗'}  (captura: ${SHOT_ZOOM})`);
+      if (!zoom) problems.push('[check] el clic no amplía la foto');
+    }
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    const closed = await page.evaluate(() => !window.__cameras.viewer.open && document.querySelector('.photo').hidden);
+    if (!closed) problems.push(`[check] Esc no cerró la foto de ${m.name}`);
+  }
+  console.log(`  Esc vuelve al juego: ${problems.some((p) => p.includes('Esc no cerró')) ? '✗' : '✓'}`);
+
+  // Logo de la NASA: cámara de lado, cerca del costado izquierdo del chasis.
+  const logo = await page.evaluate(() => {
+    const g = window.__game;
+    if (!g.logos?.length) return null;
+    // Centro del logo del costado que mira a la cámara, y su normal hacia fuera.
+    const root = g.driver.rover.root;
+    const centers = g.logos.map((m) => {
+      m.geometry.computeBoundingBox();
+      return root.localToWorld(m.geometry.boundingBox.getCenter(g.camera.position.clone()));
+    });
+    const c = centers.reduce((best, p) => (p.distanceTo(g.camera.position) < best.distanceTo(g.camera.position) ? p : best));
+    const out = c.clone().sub(root.position).setY(0).normalize();
+    g.holdCamera(true);
+    g.camera.position.copy(c).addScaledVector(out, 2.6);
+    g.camera.position.y += 0.35;
+    g.controls.target.copy(c);
+    g.controls.update();
+    return { count: g.logos.length };
+  });
+  await sleep(1500);
+  await page.screenshot({ path: SHOT_LOGO });
+  await page.evaluate(() => window.__game.holdCamera(false));
+  console.log(`Logo de la NASA: ${logo ? `${logo.count} piezas ✓` : 'no está ✗'}  (captura: ${SHOT_LOGO})`);
+  if (!logo) problems.push('[check] el rover no tiene el logo de la NASA');
+
   // Parado con A: gira sobre sí mismo; las 4 ruedas de las esquinas se orientan y las centrales no.
   await page.mouse.click(800, 450);
   const drive = (seconds) => page.evaluate((n) => { for (let i = 0; i < n; i++) window.__game?.step(1 / 30); }, Math.round(seconds * 30));
@@ -245,13 +330,32 @@ try {
   const rock = await page.evaluate(() => {
     const g = window.__game;
     const s = g.driver.state;
-    const rock = g.rocks.rocks
+    const rocks = g.rocks.rocks;
+    // Una roca alta con el pasillo de llegada (8 m × 4 m) libre de otras rocas altas.
+    const clear = (rock, h) => {
+      const fx = Math.sin(h), fz = Math.cos(h);
+      return rocks.every((o) => {
+        if (o === rock || !o.solid) return true;
+        const dx = o.x - rock.x, dz = o.z - rock.z;
+        const along = -(dx * fx + dz * fz); // distancia hacia atrás desde la roca
+        const side = Math.abs(dx * fz - dz * fx);
+        return along < -1 || along > 11 || side > 2 + o.r;
+      });
+    };
+    const candidates = rocks
       .filter((r) => r.solid && r.height > 0.5)
-      .sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z))[0];
-    const h = Math.atan2(rock.x - s.x, rock.z - s.z);
-    Object.assign(s, { x: rock.x - Math.sin(h) * 8, z: rock.z - Math.cos(h) * 8, heading: h, speed: 0 });
-    return { ...rock, crashesBefore: s.crashes };
+      .sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z));
+    for (const rock of candidates) {
+      for (let k = 0; k < 8; k++) {
+        const h = (k / 8) * Math.PI * 2;
+        if (!clear(rock, h)) continue;
+        Object.assign(s, { x: rock.x - Math.sin(h) * 8, z: rock.z - Math.cos(h) * 8, heading: h, speed: 0 });
+        return { ...rock, crashesBefore: s.crashes };
+      }
+    }
+    return null;
   });
+  if (!rock) throw new Error('no se encontró una roca con el camino libre para la prueba de choque');
   await page.keyboard.down('KeyW');
   await drive(5);
   await page.screenshot({ path: SHOT_CRASH });

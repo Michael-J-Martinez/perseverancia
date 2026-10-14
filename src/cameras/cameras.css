@@ -1,0 +1,273 @@
+/* Puntos de las cámaras y visor de fotos. Usa los tokens del control de misión (hud.css). */
+:root {
+  --cam-glow: #9be7ff;
+  --cam-glow-soft: rgba(155, 231, 255, 0.35);
+  --photo-paper: #f4ead9;
+  --photo-ink: #2a160c;
+}
+
+.cam-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cam-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.cam-dot[hidden] { display: none; }
+/* Núcleo brillante + anillo que late. */
+.cam-dot::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px 2px var(--cam-glow), 0 0 18px 6px var(--cam-glow-soft);
+}
+.cam-ring {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--cam-glow);
+  animation: cam-pulse 1.8s ease-out infinite;
+}
+@keyframes cam-pulse {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+.cam-dot.behind { opacity: 0.5; }
+.cam-dot:hover,
+.cam-dot:focus-visible { opacity: 1; z-index: 2; outline: none; }
+.cam-dot:hover::before,
+.cam-dot:focus-visible::before { box-shadow: 0 0 8px 3px var(--cam-glow), 0 0 26px 10px var(--cam-glow-soft); }
+
+.cam-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  display: none;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 10px;
+  font: 12px/1.35 var(--mc-ui);
+  text-align: left;
+  color: var(--mc-dim);
+  background: var(--mc-bg);
+  border: 1px solid rgba(155, 231, 255, 0.4);
+  border-radius: 6px;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+.cam-label b {
+  display: block;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--cam-glow);
+}
+.cam-label i {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--mc-faint);
+}
+.cam-dot:hover .cam-label,
+.cam-dot:focus-visible .cam-label { display: block; }
+
+/* --- Visor ------------------------------------------------------------------------------ */
+.photo {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  box-sizing: border-box;
+  background: rgba(14, 6, 3, 0.62);
+  backdrop-filter: blur(3px);
+  animation: photo-bg 0.4s ease-out;
+}
+.photo[hidden] { display: none; }
+@keyframes photo-bg { from { background: rgba(14, 6, 3, 0); } }
+
+.photo-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+.photo-flash.go { animation: flash 0.7s ease-out; }
+@keyframes flash {
+  0% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
+/* Foto de papel: marco claro, como recién salida de la cámara. */
+.photo-card {
+  margin: 0;
+  width: min(1080px, 92vw);
+  padding: 12px 12px 10px;
+  box-sizing: border-box;
+  background: var(--photo-paper);
+  color: var(--photo-ink);
+  border-radius: 4px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  animation: card-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+@keyframes card-in { from { transform: translateY(24px) rotate(-1.5deg) scale(0.92); opacity: 0; } }
+
+.photo-frame {
+  position: relative;
+  background: #1b0f09;
+  aspect-ratio: 4 / 3;
+  max-height: calc(100vh - 180px);
+  max-width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+}
+.photo-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+/* Revelado: de una mancha clara y borrosa a la foto nítida, con una línea de escaneo. */
+.photo-frame img.reveal {
+  animation: develop 3.2s ease-out both, scan 1.6s steps(24, end) both;
+}
+@keyframes develop {
+  0% { filter: brightness(2.6) contrast(0.35) saturate(0) blur(14px); }
+  45% { filter: brightness(1.5) contrast(0.7) saturate(0.4) blur(4px); }
+  100% { filter: none; }
+}
+@keyframes scan {
+  from { clip-path: inset(0 0 100% 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+.photo-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  font: 14px var(--mc-mono);
+  letter-spacing: 0.06em;
+  color: rgba(244, 234, 217, 0.75);
+  animation: mc-pulse 0.7s ease-in-out infinite alternate;
+}
+.photo-wait[hidden] { display: none; }
+
+.photo-card figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 4px 2px;
+  font: 13px/1.4 var(--mc-ui);
+}
+.photo-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  font-variant-numeric: tabular-nums;
+}
+.photo-meta b { font-size: 16px; letter-spacing: 0.02em; }
+.photo-meta span { font-family: var(--mc-mono); font-size: 13px; color: #6b4a33; }
+.photo-meta .photo-count { margin-left: auto; color: #9a7a60; }
+.photo-desc { font-size: 15px; }
+.photo-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: #8a6a52;
+}
+.photo-help kbd {
+  display: inline-block;
+  min-width: 1.3em;
+  padding: 0 4px;
+  margin-right: 3px;
+  font: 600 11px var(--mc-mono);
+  text-align: center;
+  color: var(--photo-ink);
+  border: 1px solid #c9b59b;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+}
+.photo-help a { margin-left: auto; color: #8a4a22; }
+
+/* Ampliada: la foto ocupa toda la pantalla, sin marco. */
+.photo.zoom { padding: 0; background: #000; }
+.photo.zoom .photo-card { width: 100vw; height: 100vh; padding: 0; background: #000; border-radius: 0; animation: none; }
+.photo.zoom .photo-frame { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; background: #000; }
+.photo.zoom .photo-frame img { cursor: zoom-out; animation: none; }
+.photo.zoom figcaption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 16px 12px;
+  color: #f4ead9;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+}
+.photo.zoom .photo-meta span,
+.photo.zoom .photo-help { color: rgba(244, 234, 217, 0.7); }
+.photo.zoom .photo-help kbd { color: #f4ead9; border-color: rgba(244, 234, 217, 0.4); }
+.photo.zoom .photo-help a { color: #ffb35c; }
+
+/* Ayuda de controles del juego, abajo a la izquierda. */
+.game-help {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 12px;
+  box-sizing: border-box;
+  font: 12px var(--mc-ui);
+  color: var(--mc-dim);
+  background: var(--mc-bg);
+  border: 1px solid var(--mc-line);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+}
+.game-help kbd {
+  display: inline-block;
+  min-width: 1.3em;
+  padding: 0 4px;
+  margin-right: 3px;
+  font: 600 11px var(--mc-mono);
+  text-align: center;
+  color: var(--mc-text);
+  border: 1px solid var(--mc-line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+.game-help .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 5px 2px var(--cam-glow);
+  vertical-align: 0;
+}

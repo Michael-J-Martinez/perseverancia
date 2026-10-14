@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import { groundHeight } from './terrain.js';
 
 // Dimensiones reales de Perseverance (NASA): 3 m de largo, 2.7 m de ancho, 2.2 m de alto.
@@ -331,4 +332,61 @@ export function createDriver(rover, { x = 0, z = 0, heading = 0 } = {}, rockFiel
   base.copy(rover.root.quaternion);
   place(0, true);
   return { state, update, keys, contact };
+}
+
+// Logo oficial de la NASA (SVG de dominio público) proyectado sobre los dos costados del chasis.
+// El modelo trae el logo, pero diminuto (en la placa de los nombres); así se ve desde el juego.
+export async function addNasaLogos(rover, url = '/textures/nasa-logo.svg', size = 0.34) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d');
+  // El SVG mide 110×92 con el círculo centrado en x≈50: se centra en un lienzo cuadrado.
+  const k = 1024 / 92;
+  ctx.drawImage(img, 512 - 50 * k, 0, 110 * k, 92 * k);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 8;
+  const material = new THREE.MeshStandardMaterial({
+    map,
+    transparent: true,
+    roughness: 0.55,
+    metalness: 0,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+  });
+
+  const body = rover.model.getObjectByName('Body');
+  const targets = [];
+  body.traverse((o) => o.isMesh && targets.push(o));
+  rover.root.updateMatrixWorld(true);
+  const ray = new THREE.Raycaster();
+  const helper = new THREE.Object3D();
+  const logos = [];
+  for (const side of [1, -1]) {
+    // Desde fuera hacia el costado del chasis, en el hueco libre (sin ruedas ni balancines delante)
+    // entre la rueda central y la trasera: de 0,8 a 1,1 m de alto.
+    const origin = new THREE.Vector3(side * 3, 0.95, -0.75);
+    ray.set(origin, new THREE.Vector3(-side, 0, 0));
+    const hit = ray.intersectObjects(targets, false)[0];
+    if (!hit) continue;
+    const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    helper.position.copy(hit.point);
+    helper.lookAt(hit.point.clone().add(normal));
+    for (const mesh of targets) {
+      const geo = new DecalGeometry(mesh, hit.point, helper.rotation.clone(), new THREE.Vector3(size, size, 0.3));
+      if (!geo.attributes.position.count) continue;
+      const decal = new THREE.Mesh(geo, material);
+      decal.receiveShadow = true;
+      decal.name = 'NASA_logo';
+      // DecalGeometry sale en coordenadas del mundo; el rover aún está en el origen.
+      rover.root.add(decal);
+      logos.push(decal);
+    }
+  }
+  return logos;
 }

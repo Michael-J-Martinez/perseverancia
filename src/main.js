@@ -11,7 +11,8 @@ import { createRocks } from './rocks.js';
 import { createSky } from './sky.js';
 import { createMoons } from './moons.js';
 import { createDust } from './dust.js';
-import { loadRover, createDriver } from './rover.js';
+import { loadRover, createDriver, addNasaLogos } from './rover.js';
+import { createCameraMarkers } from './cameras/cameras.js';
 import { createTracks } from './tracks.js';
 import './mission/hud.js';
 
@@ -27,8 +28,9 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(COLORS.fog, 0.0032);
 
-// El rover arranca mirando hacia el sol de tarde (-Z); la cámara va detrás, baja.
-const START = { x: 0, z: 16, heading: Math.PI };
+// El rover arranca mirando hacia el sol de tarde (-Z), algo girado para que se vea su costado
+// (con el logo de la NASA); la cámara va detrás, baja.
+const START = { x: 0, z: 16, heading: Math.PI + 0.55 };
 const CAM_DIST = 9;
 const CAM_HEIGHT = 2.6;
 const LOOK_HEIGHT = 3.2;
@@ -73,8 +75,15 @@ scene.add(sky, terrain, rocks, moons, dust, tracks.mesh);
 
 // Rover oficial de la NASA (se carga en segundo plano; la escena ya se ve mientras tanto).
 let driver = null;
+let cameraMarkers = null;
 const lastStamp = { l: new THREE.Vector3(), r: new THREE.Vector3() };
-loadRover('/models/perseverance.glb').then((rover) => {
+loadRover('/models/perseverance.glb').then(async (rover) => {
+  // El logo se proyecta con el rover aún en el origen (antes de colocarlo en el terreno).
+  const logos = await addNasaLogos(rover).catch((err) => {
+    console.error(`No se pudo poner el logo de la NASA: ${err.message}`);
+    return [];
+  });
+  cameraMarkers = createCameraMarkers(rover, { onOpen: () => driver?.keys.clear() });
   scene.add(rover.root);
   driver = createDriver(rover, START, rocks.userData.field);
   driver.state.onCrash = onCrash;
@@ -86,11 +95,16 @@ loadRover('/models/perseverance.glb').then((rover) => {
   console.log(`Perseverance cargado: ${x.toFixed(2)} m ancho × ${y.toFixed(2)} m alto × ${z.toFixed(2)} m largo`);
   console.log(`Piezas que son cámaras (${rover.cameraParts.length}):`);
   for (const part of rover.cameraParts) console.log(`  📷 ${part.name}`);
+  console.log(`Logo de la NASA: ${logos.length ? `${logos.length} piezas en los costados` : 'no se pudo poner'}`);
   // Estado accesible para npm run check.
   window.__game = {
     driver,
     tracks: tracks.mesh,
     rocks: rocks.userData.field,
+    logos,
+    holdCamera(on) {
+      cameraHold = on;
+    },
     camera,
     controls,
     step(dt) {
@@ -104,6 +118,15 @@ loadRover('/models/perseverance.glb').then((rover) => {
 const tmp = new THREE.Vector3();
 const behind = new THREE.Vector3();
 const prevRoverPos = new THREE.Vector3(START.x, startY, START.z);
+
+// Ayuda de controles.
+const help = document.createElement('div');
+help.className = 'game-help';
+help.innerHTML =
+  '<span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> manejar</span>' +
+  '<span><kbd>T</kbd> control de misión</span>' +
+  '<span><i class="dot"></i>clic en un punto brillante: tomar foto</span>';
+document.body.append(help);
 
 // Choques contra rocas: temblor de cámara y un aviso breve.
 let shake = 0;
@@ -138,7 +161,9 @@ function stampTracks() {
 
 // Cámara de seguimiento: se mueve con el rover y, al conducir, vuelve suavemente a su espalda.
 // Con el ratón se puede orbitar alrededor en cualquier momento.
+let cameraHold = false; // npm run check fija la cámara para sus primeros planos
 function followCamera(dt, driving) {
+  if (cameraHold) return;
   const pos = driver.rover.root.position;
   tmp.subVectors(pos, prevRoverPos);
   camera.position.add(tmp);
@@ -224,6 +249,7 @@ renderer.setAnimationLoop((now) => {
   moons.position.copy(camera.position);
   moons.userData.update(dt);
   dust.userData.update(dt, t, camera);
+  cameraMarkers?.update(camera);
   film.uniforms.time.value = t % 100;
   composer.render();
 });
